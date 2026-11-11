@@ -4,7 +4,7 @@ import { frame } from "./abort.ts";
 import { PEN, ERASER, HAND, UNDO, REDO, TABLET } from "./icons.ts";
 import { referenceFor, mountReference } from "./reference.ts";
 import { referenceBounds, viewOrigin } from "./geometry.ts";
-import { paintInk, paintSegment, type Point, type Stroke } from "./strokes.ts";
+import { paintInk, type Point, type Stroke } from "./strokes.ts";
 import type { SessionSheet, Sheets } from "./state.ts";
 import { appPalette } from "./theme.ts";
 
@@ -152,12 +152,10 @@ export function mountSheet(container: HTMLElement, ctx: PluginFrontendContext, s
       const nextTool = (sample.buttons & 32) !== 0 ? "eraser" : state.tool;
       if (active && active.tool !== nextTool) flush();
       if (!active) { start(sample); continue; }
-      const next = point(sample);
-      if (active.tool === "pen") paintSegment(canvas.getContext("2d")!, active.points.at(-1)!, next, state.draft.color, active.size ?? 1);
-      active.points.push(next);
+      active.points.push(point(sample));
     }
-    const draft = state.draft;
-    if (draft && active?.tool === "eraser") render();
+    // Ink is drawn as one smoothed outline, so repaint the stroke (once per frame).
+    if (state.draft && active) requestPaint();
   };
   const finish = (event: PointerEvent) => {
     if (pointerId !== event.pointerId) return;
@@ -176,9 +174,10 @@ export function mountSheet(container: HTMLElement, ctx: PluginFrontendContext, s
   const unsubscribe = sheets.onChange(render);
   // Live companion previews arrive at pointer rate; repaint at most once per frame.
   let liveFrame: number | undefined;
-  const unsubscribeLive = sheets.onLive(() => {
+  function requestPaint(): void {
     if (liveFrame === undefined && !disposed) liveFrame = requestAnimationFrame(() => { liveFrame = undefined; render(); });
-  });
+  }
+  const unsubscribeLive = sheets.onLive(requestPaint);
   const unsubscribeCompanion = companion?.onChange(render);
   const resize = new ResizeObserver(render); resize.observe(viewport);
   const dispose = () => {

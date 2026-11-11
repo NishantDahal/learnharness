@@ -1,5 +1,6 @@
 /** Adapted from hrdkj/learnharness, codex/handwriting-contribution (48dd022).
  * See THIRD-PARTY.md. Coordinates and pressure remain in unrestricted world space. */
+import { getStroke } from "perfect-freehand";
 export interface Point { x: number; y: number; pressure: number }
 /** `id` is an opaque companion-sync identity; it is never rendered, exported or
  * part of the image signature. `size` is an optional brush multiplier: omitted
@@ -13,8 +14,13 @@ export function strokeSize(stroke: Pick<Stroke, "size">): number {
   const size = stroke.size;
   return typeof size === "number" && Number.isFinite(size) && size > 0 ? size : 1;
 }
+const THINNING = 0.6;
+/** Painted diameter at the average pressure of a segment: 1.2 (no pressure) to 4.8
+ * (full pressure), 3 at medium, times the brush size. This is exactly the width of
+ * the smoothed outline drawn by `paintStroke`, and is used for erasing and bounds. */
 export function strokeWidth(a: Point, b: Point, size = 1): number {
-  return (1.5 + 3 * (a.pressure + b.pressure) / 2) * size;
+  const pressure = (a.pressure + b.pressure) / 2;
+  return 2 * 3 * size * (0.5 - THINNING * (0.5 - pressure));
 }
 function pointSegmentDistanceSquared(point: Point, a: Point, b: Point): number {
   const dx = b.x - a.x, dy = b.y - a.y;
@@ -76,9 +82,44 @@ export function paintSegment(context: CanvasRenderingContext2D, a: Point, b: Poi
     context.moveTo(a.x, a.y); context.lineTo(b.x, b.y); context.stroke();
   }
 }
-export function paintStroke(context: CanvasRenderingContext2D, stroke: Stroke, color: string): void {
-  const size = strokeSize(stroke);
-  stroke.points.forEach((point, i) => paintSegment(context, stroke.points[Math.max(0, i - 1)]!, point, color, size));
+/** Notes-style ink: perfect-freehand turns the raw samples and pressure into one
+ * smooth, variable-width outline, filled with quadratic curves. Raw points stay
+ * stored unchanged; only rendering is smoothed, so every device (and the exported
+ * image) draws the same shape. Widths match `strokeWidth` (diameter = 2 × radius). */
+export const INK = Object.freeze({ base: 3, thinning: THINNING, smoothing: 0.62, streamline: 0.42 });
+export function strokeOutline(stroke: Stroke, complete = true): number[][] {
+  return getStroke(stroke.points.map(point => [point.x, point.y, point.pressure]), {
+    size: INK.base * strokeSize(stroke), thinning: INK.thinning, smoothing: INK.smoothing, streamline: INK.streamline,
+    simulatePressure: false, last: complete, start: { cap: true }, end: { cap: true },
+  });
+}
+export function fillOutline(context: CanvasRenderingContext2D, outline: readonly number[][]): void {
+  const count = outline.length;
+  if (count < 3) return;
+  context.beginPath();
+  const first = outline[0]!, second = outline[1]!;
+  context.moveTo(first[0]!, first[1]!);
+  context.quadraticCurveTo(second[0]!, second[1]!, (second[0]! + outline[2]![0]!) / 2, (second[1]! + outline[2]![1]!) / 2);
+  for (let i = 2; i < count - 1; i++) {
+    const a = outline[i]!, b = outline[i + 1]!;
+    context.quadraticCurveTo(a[0]!, a[1]!, (a[0]! + b[0]!) / 2, (a[1]! + b[1]!) / 2);
+  }
+  context.closePath();
+  context.fill();
+}
+export function paintStroke(context: CanvasRenderingContext2D, stroke: Stroke, color: string, complete = true): void {
+  if (!stroke.points.length) return;
+  context.globalCompositeOperation = "source-over";
+  context.fillStyle = color;
+  if (stroke.points.length === 1) {
+    // A tap: a round dot of the pen's width at that pressure.
+    const point = stroke.points[0]!;
+    context.beginPath();
+    context.arc(point.x, point.y, strokeWidth(point, point, strokeSize(stroke)) / 2, 0, Math.PI * 2);
+    context.fill();
+    return;
+  }
+  fillOutline(context, strokeOutline(stroke, complete));
 }
 export function paintInk(canvas: HTMLCanvasElement, width: number, height: number, strokes: readonly Stroke[], color: string,
   origin: { x: number; y: number } = { x: 0, y: 0 }): void {

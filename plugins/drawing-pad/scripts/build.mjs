@@ -29,6 +29,7 @@ for (const file of ["index.html", "app.css"]) fs.copyFileSync(path.join(root, "s
 fs.mkdirSync(path.join(output, "licenses"));
 fs.copyFileSync(path.join(root, "node_modules/html-to-image/LICENSE"), path.join(output, "licenses/html-to-image-LICENSE"));
 fs.copyFileSync(path.join(root, "node_modules/ws/LICENSE"), path.join(output, "licenses/ws-LICENSE"));
+fs.copyFileSync(path.join(root, "node_modules/perfect-freehand/LICENSE"), path.join(output, "licenses/perfect-freehand-LICENSE"));
 // qrcode-generator ships its MIT notice in source headers rather than a LICENSE file.
 fs.copyFileSync(path.join(root, "licenses/qrcode-generator-LICENSE"), path.join(output, "licenses/qrcode-generator-LICENSE"));
 console.log(`Built Drawing Pad plugin only: ${output}`);

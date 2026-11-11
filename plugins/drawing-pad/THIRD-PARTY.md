@@ -39,3 +39,11 @@ MIT licensed (Copyright (c) 2009 Kazuhiko Arase). Bundled into `backend.cjs` to 
 the companion pairing link as a QR code; the notice is kept in
 `licenses/qrcode-generator-LICENSE` and copied to `dist/licenses/` during build.
 "QR Code" is a registered trademark of DENSO WAVE INCORPORATED.
+
+## perfect-freehand 1.2.3
+
+https://github.com/steveruizok/perfect-freehand
+
+MIT licensed (Copyright (c) 2021 Stephen Ruiz Ltd). Bundled to render strokes as smooth,
+pressure-sensitive outlines on the desktop pad, the iPad companion and exported images;
+its license is copied to `dist/licenses/perfect-freehand-LICENSE` during build.

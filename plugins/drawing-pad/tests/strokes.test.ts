@@ -1,14 +1,31 @@
 import assert from "node:assert/strict";
 import { it } from "node:test";
-import { inkSignature, strokeWidth, visibleStrokes, type Point, type Stroke } from "../src/strokes.ts";
+import { inkSignature, paintStroke, strokeOutline, strokeWidth, visibleStrokes, type Point, type Stroke } from "../src/strokes.ts";
 const point = (x: number, y = 0, pressure = .5): Point => ({ x, y, pressure });
 const pen = (points: Point[]): Stroke => ({ tool: "pen", points });
 const erase = (points: Point[]): Stroke => ({ tool: "eraser", points });
 
-it("uses reference pressure widths, including fixed mouse pressure", () => {
-  assert.equal(strokeWidth(point(0, 0, 0), point(0, 0, 0)), 1.5);
+it("uses pressure widths matching the smoothed outline, including fixed mouse pressure", () => {
+  assert.ok(Math.abs(strokeWidth(point(0, 0, 0), point(0, 0, 0)) - 1.2) < 1e-9);
   assert.equal(strokeWidth(point(0), point(1)), 3);
-  assert.equal(strokeWidth(point(0, 0, 1), point(0, 0, 1)), 4.5);
+  assert.ok(Math.abs(strokeWidth(point(0, 0, 1), point(0, 0, 1)) - 4.8) < 1e-9);
+});
+it("renders ink as one smooth filled outline whose width follows pressure and size", () => {
+  const line = (pressure: number, size?: number): Stroke => ({ tool: "pen", ...(size ? { size } : {}),
+    points: Array.from({ length: 21 }, (_, i) => ({ x: i * 5, y: 0, pressure })) });
+  const height = (stroke: Stroke) => {
+    const ys = strokeOutline(stroke).filter(([x]) => x! > 30 && x! < 70).map(([, y]) => y!);
+    return Math.max(...ys) - Math.min(...ys);
+  };
+  assert.ok(Math.abs(height(line(.5)) - 3) < 0.35, `medium pen ≈ 3px, got ${height(line(.5))}`);
+  assert.ok(height(line(1)) > height(line(.5)) && height(line(.5)) > height(line(0)), "pressure thickens");
+  assert.ok(Math.abs(height(line(.5, 4)) / height(line(.5)) - 4) < 0.2, "brush size scales width");
+  let fills = 0, curves = 0;
+  const context = { globalCompositeOperation: "", fillStyle: "", beginPath() {}, moveTo() {}, closePath() {}, arc() {},
+    quadraticCurveTo() { curves++; }, fill() { fills++; } } as unknown as CanvasRenderingContext2D;
+  paintStroke(context, line(.5), "#000");
+  assert.equal(fills, 1, "one filled shape per stroke, no overlapping segment stamps");
+  assert.ok(curves > 10, "outline is drawn with curves");
 });
 it("erases a whole crossing stroke, not only its touched segment", () => {
   const a = pen([point(0), point(100)]), b = pen([point(0, 60), point(100, 60)]);

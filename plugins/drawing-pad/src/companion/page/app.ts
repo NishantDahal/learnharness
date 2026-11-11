@@ -1,7 +1,7 @@
 /** iPad / Safari drawing surface for the LearnHarness Drawing Pad companion.
  * Apple Pencil draws; once a pencil has been seen, fingers only pan/zoom (palm
  * rejection). Ink is stored in the desktop pad's world coordinates. */
-import { BRUSH_SIZES, paintSegment, paintStroke, visibleStrokes, type Point, type Stroke } from "../../strokes.ts";
+import { BRUSH_SIZES, paintStroke, visibleStrokes, type Point, type Stroke } from "../../strokes.ts";
 import { clampScale, companionCamera, fitScale, screenToWorld, zoomPan, type Camera } from "../camera.ts";
 import { LIMITS, toWire, type DocSnapshot } from "../protocol.ts";
 import { CompanionConnection, type ConnectionState, type SocketLike } from "./connection.ts";
@@ -108,8 +108,13 @@ export function start(): void {
   function renderActive(): void {
     const context = activeCanvas.getContext("2d")!;
     prepare(context);
-    if (active?.stroke.tool === "pen") paintStroke(context, active.stroke, ink());
+    // The stroke in progress, plus Safari's predicted pencil samples so the ink keeps
+    // up with the pencil tip. Predictions are drawn only, never stored or sent.
+    if (active?.stroke.tool === "pen")
+      paintStroke(context, { ...active.stroke, points: [...active.stroke.points, ...active.predicted] }, ink(), false);
   }
+  let activeFrame: number | undefined;
+  const requestActive = () => { if (activeFrame === undefined) activeFrame = requestAnimationFrame(() => { activeFrame = undefined; renderActive(); }); };
   function renderChrome(): void {
     const doc = model.doc, online = connectionState === "online", hasDoc = !!doc && online;
     buttons.pen.setAttribute("aria-pressed", String(prefs.tool === "pen"));
@@ -173,7 +178,7 @@ export function start(): void {
   });
 
   // ---- drawing input --------------------------------------------------------
-  interface Active { pointerId: number; pointerType: string; stroke: Stroke; sid: string; doc: string; sent: number; last?: Point }
+  interface Active { pointerId: number; pointerType: string; stroke: Stroke; sid: string; doc: string; sent: number; last?: Point; predicted: Point[] }
   let active: Active | undefined;
   const touches = new Map<number, { x: number; y: number }>();
   let gesture: { pan: { x: number; y: number }; scale: number; distance: number; cx: number; cy: number } | undefined;
@@ -192,27 +197,28 @@ export function start(): void {
     const doc = model.doc;
     if (!doc) return;
     const stroke: Stroke = { tool: prefs.tool, points: [], ...(prefs.size === 1 ? {} : { size: prefs.size }) };
-    active = { pointerId: event.pointerId, pointerType: event.pointerType, stroke, sid: randomId(), doc: doc.id, sent: 0 };
+    active = { pointerId: event.pointerId, pointerType: event.pointerType, stroke, sid: randomId(), doc: doc.id, sent: 0, predicted: [] };
     extend(event);
     surface.setPointerCapture(event.pointerId);
   }
   function extend(event: PointerEvent): void {
     if (!active) return;
     const samples = event.getCoalescedEvents?.() ?? [];
-    const context = activeCanvas.getContext("2d")!;
     for (const sample of samples.length ? samples : [event]) {
       const point = worldPoint(sample, active.last);
       const last = active.last;
       // Drop sub-pixel jitter; keep the first point (dots).
       if (last && Math.hypot(point.x - last.x, point.y - last.y) < 0.35 / camera().scale) continue;
       active.stroke.points.push(point); active.last = point;
-      if (active.stroke.tool === "pen") {
-        prepare(context, false);
-        paintSegment(context, last ?? point, point, ink(), active.stroke.size ?? 1);
-      }
       if (active.stroke.points.length >= LIMITS.pointsPerStroke - 1) { finish(true); return; }
     }
-    if (active.stroke.tool === "eraser") requestRender();
+    active.predicted = [];
+    if (event.type === "pointermove") for (const sample of (event.getPredictedEvents?.() ?? []).slice(0, 3)) {
+      const point = worldPoint(sample, active.predicted.at(-1) ?? active.last);
+      if (active.last && Math.hypot(point.x - active.last.x, point.y - active.last.y) > 40 / camera().scale) break;
+      active.predicted.push(point);
+    }
+    if (active.stroke.tool === "eraser") requestRender(); else requestActive();
     scheduleLive();
   }
   let liveFrame: number | undefined;
@@ -239,7 +245,7 @@ export function start(): void {
       connection.send({ t: "stroke", doc: current.doc, stroke: wire });
     } else if (current.sent) connection.send({ t: "live-end", doc: current.doc, sid: current.sid });
     if (continueStroke && current.last) {
-      active = { ...current, stroke: { ...current.stroke, points: [current.last] }, sid: randomId(), sent: 0 };
+      active = { ...current, stroke: { ...current.stroke, points: [current.last] }, sid: randomId(), sent: 0, predicted: [] };
     }
     requestRender();
   }

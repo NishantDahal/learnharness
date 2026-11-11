@@ -23,8 +23,9 @@ it("bottom anchoring changes only the camera, never reference/export world bound
   assert.deepEqual(viewOrigin(1400, 900, { x: 90, y: -120 }, 250), { x: 790, y: 631 });
   assert.deepEqual(exportBounds(670, 250, history), before);
 });
+const rounded = (bounds: ReturnType<typeof inkBounds>) => bounds && Object.fromEntries(Object.entries(bounds).map(([k, v]) => [k, Math.round(v * 1e6) / 1e6]));
 it("ink bounds include dot pressure and negative/remote coordinates", () => {
-  assert.deepEqual(inkBounds([pen(-2000, 3000, 1)]), { x: -2002.25, y: 2997.75, width: 4.5, height: 4.5 });
+  assert.deepEqual(rounded(inkBounds([pen(-2000, 3000, 1)])), { x: -2002.4, y: 2997.6, width: 4.8, height: 4.8 });
 });
 it("bounds include both endpoints and full radius of each variable-pressure segment", () => {
   assert.deepEqual(inkBounds([{ tool: "pen", points: [{ x: -20, y: 10, pressure: 0 }, { x: 200, y: -100, pressure: 1 }] }]),

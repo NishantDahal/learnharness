@@ -137,27 +137,21 @@ describe("brush size", () => {
     for (const size of BRUSH_SIZES) assert.equal(strokeSize({ size }), size);
     for (const size of [undefined, 0, -2, NaN, Infinity]) assert.equal(strokeSize({ size }), 1);
   });
-  it("size scales painted line width", () => {
-    const widths = (stroke: Stroke) => {
-      const recorded: number[] = [];
-      const context = { set lineWidth(value: number) { recorded.push(value); }, get lineWidth() { return recorded.at(-1) ?? 1; },
-        beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, arc() {}, fill() {} } as unknown as CanvasRenderingContext2D;
-      paintStroke(context, stroke, "#fff");
-      return recorded;
-    };
-    const points = [{ x: 0, y: 0, pressure: .5 }, { x: 10, y: 0, pressure: .5 }];
-    const base = widths({ tool: "pen", points });
-    assert.deepEqual(base, [3, 3]);
-    assert.deepEqual(widths({ tool: "pen", points, size: 1 }), base);
-    assert.deepEqual(widths({ tool: "pen", points, size: 4 }), [12, 12]);
-    assert.deepEqual(widths({ tool: "pen", points, size: 0.5 }), [1.5, 1.5]);
-    assert.equal(strokeWidth(points[0]!, points[1]!, 2), 6);
+  it("size scales the painted dot and nominal width", () => {
+    const radii: number[] = [];
+    const context = { globalCompositeOperation: "", fillStyle: "", beginPath() {}, fill() {},
+      arc(_x: number, _y: number, radius: number) { radii.push(radius); } } as unknown as CanvasRenderingContext2D;
+    const dot = [{ x: 0, y: 0, pressure: .5 }];
+    for (const size of [undefined, 1, 4, 0.5]) paintStroke(context, { tool: "pen", points: dot, ...(size ? { size } : {}) }, "#fff");
+    assert.deepEqual(radii, [1.5, 1.5, 6, 0.75]);
+    assert.equal(strokeWidth(dot[0]!, dot[0]!, 2), 6);
   });
   it("size scales ink bounds", () => {
     const point = [{ x: 0, y: 0, pressure: 1 }];
-    assert.deepEqual(inkBounds([{ tool: "pen", points: point }]), { x: -2.25, y: -2.25, width: 4.5, height: 4.5 });
-    assert.deepEqual(inkBounds([{ tool: "pen", points: point, size: 4 }]), { x: -9, y: -9, width: 18, height: 18 });
-    assert.deepEqual(inkBounds([{ tool: "pen", points: point, size: 0.5 }]), { x: -1.125, y: -1.125, width: 2.25, height: 2.25 });
+    const rounded = (bounds: ReturnType<typeof inkBounds>) => bounds && Object.fromEntries(Object.entries(bounds).map(([k, v]) => [k, Math.round(v * 1e6) / 1e6]));
+    assert.deepEqual(rounded(inkBounds([{ tool: "pen", points: point }])), { x: -2.4, y: -2.4, width: 4.8, height: 4.8 });
+    assert.deepEqual(rounded(inkBounds([{ tool: "pen", points: point, size: 4 }])), { x: -9.6, y: -9.6, width: 19.2, height: 19.2 });
+    assert.deepEqual(rounded(inkBounds([{ tool: "pen", points: point, size: 0.5 }])), { x: -1.2, y: -1.2, width: 2.4, height: 2.4 });
   });
   it("eraser size scales the erase radius", () => {
     const target: Stroke = { tool: "pen", points: [{ x: 0, y: 0, pressure: 0 }] }; // radius 0.75
