@@ -1,11 +1,20 @@
 /** Adapted from hrdkj/learnharness, codex/handwriting-contribution (48dd022).
  * See THIRD-PARTY.md. Coordinates and pressure remain in unrestricted world space. */
 export interface Point { x: number; y: number; pressure: number }
-export interface Stroke { tool: "pen" | "eraser"; points: Point[] }
+/** `id` is an opaque companion-sync identity; it is never rendered, exported or
+ * part of the image signature. `size` is an optional brush multiplier: omitted
+ * (or 1) keeps the original pen width and the original image signature. */
+export interface Stroke { tool: "pen" | "eraser"; points: Point[]; id?: string; size?: number }
 export type Tool = Stroke["tool"] | "hand";
 
-export function strokeWidth(a: Point, b: Point): number {
-  return 1.5 + 3 * (a.pressure + b.pressure) / 2;
+/** Brush multipliers offered by the iPad companion. Desktop strokes use 1. */
+export const BRUSH_SIZES = [0.5, 1, 2, 4] as const;
+export function strokeSize(stroke: Pick<Stroke, "size">): number {
+  const size = stroke.size;
+  return typeof size === "number" && Number.isFinite(size) && size > 0 ? size : 1;
+}
+export function strokeWidth(a: Point, b: Point, size = 1): number {
+  return (1.5 + 3 * (a.pressure + b.pressure) / 2) * size;
 }
 function pointSegmentDistanceSquared(point: Point, a: Point, b: Point): number {
   const dx = b.x - a.x, dy = b.y - a.y;
@@ -25,9 +34,10 @@ function segmentDistanceSquared(a: Point, b: Point, c: Point, d: Point): number 
     pointSegmentDistanceSquared(c, a, b), pointSegmentDistanceSquared(d, a, b));
 }
 function touchesStroke(stroke: Stroke, eraser: Stroke): boolean {
+  const penSize = strokeSize(stroke), eraserRadius = 12 * strokeSize(eraser);
   for (let i = 0; i < stroke.points.length; i++) {
     const a = stroke.points[Math.max(0, i - 1)]!, b = stroke.points[i]!;
-    const radius = 12 + strokeWidth(a, b) / 2;
+    const radius = eraserRadius + strokeWidth(a, b, penSize) / 2;
     for (let j = 0; j < eraser.points.length; j++) {
       const c = eraser.points[Math.max(0, j - 1)]!, d = eraser.points[j]!;
       if (segmentDistanceSquared(a, b, c, d) <= radius * radius) return true;
@@ -44,18 +54,20 @@ export function visibleStrokes(history: readonly Stroke[]): Stroke[] {
   }
   return visible;
 }
-/** History-only edits (or Undo back to the sent drawing) are not new image content. */
+/** History-only edits (or Undo back to the sent drawing) are not new image content.
+ * Size-1 strokes keep their historical signature; ids never affect it. */
 export function inkSignature(history: readonly Stroke[], color: string): string {
   const visible = visibleStrokes(history);
-  return visible.length ? JSON.stringify([color, visible.map(stroke => stroke.points)]) : "";
+  return visible.length ? JSON.stringify([color, visible.map(stroke => strokeSize(stroke) === 1 ? stroke.points
+    : { size: strokeSize(stroke), points: stroke.points })]) : "";
 }
-export function paintSegment(context: CanvasRenderingContext2D, a: Point, b: Point, color: string): void {
+export function paintSegment(context: CanvasRenderingContext2D, a: Point, b: Point, color: string, size = 1): void {
   context.globalCompositeOperation = "source-over";
   context.strokeStyle = color;
   context.fillStyle = color;
   context.lineCap = "round";
   context.lineJoin = "round";
-  context.lineWidth = strokeWidth(a, b);
+  context.lineWidth = strokeWidth(a, b, size);
   context.beginPath();
   if (a.x === b.x && a.y === b.y) {
     context.arc(a.x, a.y, context.lineWidth / 2, 0, Math.PI * 2);
@@ -64,6 +76,10 @@ export function paintSegment(context: CanvasRenderingContext2D, a: Point, b: Poi
     context.moveTo(a.x, a.y); context.lineTo(b.x, b.y); context.stroke();
   }
 }
+export function paintStroke(context: CanvasRenderingContext2D, stroke: Stroke, color: string): void {
+  const size = strokeSize(stroke);
+  stroke.points.forEach((point, i) => paintSegment(context, stroke.points[Math.max(0, i - 1)]!, point, color, size));
+}
 export function paintInk(canvas: HTMLCanvasElement, width: number, height: number, strokes: readonly Stroke[], color: string,
   origin: { x: number; y: number } = { x: 0, y: 0 }): void {
   const context = canvas.getContext("2d", { willReadFrequently: true });
@@ -71,7 +87,5 @@ export function paintInk(canvas: HTMLCanvasElement, width: number, height: numbe
   context.resetTransform();
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.setTransform(canvas.width / width, 0, 0, canvas.height / height, origin.x * canvas.width / width, origin.y * canvas.height / height);
-  for (const stroke of visibleStrokes(strokes)) {
-    stroke.points.forEach((point, i) => paintSegment(context, stroke.points[Math.max(0, i - 1)]!, point, color));
-  }
+  for (const stroke of visibleStrokes(strokes)) paintStroke(context, stroke, color);
 }

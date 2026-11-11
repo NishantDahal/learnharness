@@ -17,6 +17,8 @@ export interface Draft {
   height: number;
   pixelRatio: number;
   strokes: Stroke[];
+  /** Strokes removed by Undo, most recent last. Any other edit or Clear empties it. */
+  redo?: Stroke[];
   hasInk: boolean;
 }
 export interface SessionSheet {
@@ -39,9 +41,14 @@ export class Sheets {
   private nextId = 0;
   private readonly listeners = new Set<() => void>();
   private readonly signatures = new WeakMap<Draft, string>();
+  /** In-progress remote (companion) strokes: presentation only, never content. */
+  private readonly live = new Map<SessionSheet, Map<string, Stroke>>();
+  private readonly liveListeners = new Set<() => void>();
   constructor(private readonly changed: () => void, private readonly newProblem: (session: SessionSheet) => void,
     private readonly currentColor: () => string = () => this.color) {}
   onChange(listener: () => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
+  /** Remote in-progress strokes changed (high frequency; listeners should coalesce). */
+  onLive(listener: () => void): () => void { this.liveListeners.add(listener); return () => { this.liveListeners.delete(listener); }; }
   private publish(): void { this.changed(); for (const listener of this.listeners) listener(); }
   session(id: string, kind: SessionSheet["kind"]): SessionSheet {
     let state = this.sessions.get(id);
@@ -89,24 +96,50 @@ export class Sheets {
   /** Delivery resolution is not a drawing edit and does not trigger practice resends. */
   setImageScale(imageScale: number): void { this.imageScale = imageScale; }
   create(state: SessionSheet, sheet: Omit<Draft, "id" | "revision" | "strokes" | "hasInk" | "color">): Draft {
-    const draft = { ...sheet, color: this.currentColor(), id: ++this.nextId, revision: 0, strokes: [], hasInk: false };
+    const draft = { ...sheet, color: this.currentColor(), id: ++this.nextId, revision: 0, strokes: [], redo: [], hasInk: false };
     state.draft = draft;
     state.pan = { x: 0, y: 0 };
     this.publish();
     return draft;
   }
-  update(state: SessionSheet, strokes: Stroke[]): void {
+  /** A content edit. Unless a redo stack is supplied (Undo/Redo), it discards Redo. */
+  update(state: SessionSheet, strokes: Stroke[], redo: Stroke[] = []): void {
     if (!state.draft) return;
-    state.draft = { ...state.draft, revision: state.draft.revision + 1, strokes, hasInk: visibleStrokes(strokes).length > 0 };
+    state.draft = { ...state.draft, revision: state.draft.revision + 1, strokes, redo, hasInk: visibleStrokes(strokes).length > 0 };
     this.publish();
   }
   setTool(state: SessionSheet, tool: Tool): void { state.tool = tool; this.publish(); }
   /** Camera movement is not a content edit and cannot invalidate an acceptance. */
   setPan(state: SessionSheet, pan: SessionSheet["pan"]): void { state.pan = pan; this.publish(); }
-  undo(state: SessionSheet): void { if (state.draft?.strokes.length) this.update(state, state.draft.strokes.slice(0, -1)); }
-  clear(state: SessionSheet): void { if (state.draft?.strokes.length) this.update(state, []); }
+  undo(state: SessionSheet): void {
+    const draft = state.draft;
+    if (draft?.strokes.length) this.update(state, draft.strokes.slice(0, -1), [...(draft.redo ?? []), draft.strokes.at(-1)!]);
+  }
+  redo(state: SessionSheet): void {
+    const redo = state.draft?.redo;
+    if (state.draft && redo?.length) this.update(state, [...state.draft.strokes, redo.at(-1)!], redo.slice(0, -1));
+  }
+  canRedo(state: SessionSheet): boolean { return !!state.draft?.redo?.length; }
+  /** Clear is not undoable (unchanged behavior); it also discards Redo. */
+  clear(state: SessionSheet): void { if (state.draft?.strokes.length || state.draft?.redo?.length) this.update(state, []); }
+  /** Show (or, with `undefined`, remove) a remote stroke still being drawn. This only
+   * repaints mounted sheets: it is not an edit, revision, Undo entry or submission. */
+  setLive(state: SessionSheet, key: string, stroke: Stroke | undefined): void {
+    let strokes = this.live.get(state);
+    if (stroke) { if (!strokes) this.live.set(state, strokes = new Map()); strokes.set(key, stroke); }
+    else if (!strokes?.delete(key)) return;
+    if (strokes && !strokes.size) this.live.delete(state);
+    for (const listener of this.liveListeners) listener();
+  }
+  clearLive(state?: SessionSheet): void {
+    if (state ? !this.live.delete(state) : !this.live.size) return;
+    if (!state) this.live.clear();
+    for (const listener of this.liveListeners) listener();
+  }
+  liveStrokes(state: SessionSheet): Stroke[] { return [...(this.live.get(state)?.values() ?? [])]; }
   dropUntouched(state: SessionSheet): void {
-    if (state.draft && !state.draft.strokes.length) { state.draft = undefined; this.publish(); }
+    // A sheet with only Redo history was touched; keep it so Redo still works.
+    if (state.draft && !state.draft.strokes.length && !state.draft.redo?.length) { state.draft = undefined; this.publish(); }
   }
   signature(state: SessionSheet): string {
     const draft = state.draft;
@@ -153,5 +186,5 @@ export class Sheets {
     this.publish();
     return true;
   }
-  dispose(): void { this.sessions.clear(); this.listeners.clear(); }
+  dispose(): void { this.sessions.clear(); this.listeners.clear(); this.live.clear(); this.liveListeners.clear(); }
 }

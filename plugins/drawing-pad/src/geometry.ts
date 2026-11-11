@@ -1,4 +1,4 @@
-import { strokeWidth, visibleStrokes, type Stroke } from "./strokes.ts";
+import { strokeSize, strokeWidth, visibleStrokes, type Stroke } from "./strokes.ts";
 
 export interface Offset { x: number; y: number }
 export interface Bounds extends Offset { width: number; height: number }
@@ -25,7 +25,7 @@ export function inkBounds(history: readonly Stroke[]): Bounds | undefined {
   for (const stroke of visibleStrokes(history)) {
     for (let i = 0; i < stroke.points.length; i++) {
       const a = stroke.points[Math.max(0, i - 1)]!, b = stroke.points[i]!;
-      const radius = strokeWidth(a, b) / 2;
+      const radius = strokeWidth(a, b, strokeSize(stroke)) / 2;
       left = Math.min(left, a.x - radius, b.x - radius); top = Math.min(top, a.y - radius, b.y - radius);
       right = Math.max(right, a.x + radius, b.x + radius); bottom = Math.max(bottom, a.y + radius, b.y + radius);
     }
