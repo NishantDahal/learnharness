@@ -37,7 +37,19 @@ export async function activate(ctx: PluginFrontendContext): Promise<() => void> 
   }, state => { if (open?.session === state) close(open); }, activeInk);
   // Optional iPad companion bridge. It only relays this window's sheets; failures
   // to reach its backend leave the existing Drawing Pad fully functional.
-  const companion = new CompanionHost(ctx, sheets);
+  const companion = new CompanionHost(ctx, sheets, state => { if (open?.session !== state) sheets.create(state, blankSheet()); });
+  /** While an iPad is connected, the session it draws into keeps its sheet when Draw is
+   * closed, so you can read the question and keep writing on the iPad. */
+  const companionHolds = (state: SessionSheet) => companion.connectedDevices > 0 && companion.targetSession === state;
+  /** A sheet without a question reference, for iPad writing while Draw is closed. */
+  function blankSheet() {
+    const probe = document.createElement("div"); probe.className = "drawing-pad-root";
+    probe.style.cssText = "position:fixed;left:-100000px;top:0;pointer-events:none";
+    document.body.append(probe);
+    const backgroundColor = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return { background: "", backgroundColor, width: 0, height: 0, pixelRatio: Math.min(window.devicePixelRatio || 1, 2), palette: appPalette().key };
+  }
   let companionDialog: { dispose(): void } | undefined;
   const companionEntry: SheetCompanion = {
     open() { companionDialog?.dispose(); companionDialog = openCompanionDialog(ctx, companion); },
@@ -50,7 +62,7 @@ export async function activate(ctx: PluginFrontendContext): Promise<() => void> 
     pad.closed = true;
     if (open === pad) open = undefined;
     pad.mounted?.dispose(); pad.controller.abort(); pad.handle?.dispose();
-    sheets.dropUntouched(pad.session);
+    if (!companionHolds(pad.session)) sheets.dropUntouched(pad.session);
   }
   function toggle(context: SessionAction): void {
     if (!context.view) throw new Error("This LearnHarness build does not expose the session view context required by Drawing Pad.");
@@ -259,7 +271,14 @@ export async function activate(ctx: PluginFrontendContext): Promise<() => void> 
         const result = captured.sendImage ? appendDrawing(input, await exportSheet(captured, context.signal)) : input;
         context.signal.throwIfAborted();
         if (state.draft?.id !== captured.draft.id) throw new Error("The captured drawing sheet was reset. Review the current input and submit again.");
-        context.onAccepted(() => { if (!disposed && !ctx.signal.aborted) sheets.accepted(captured); });
+        context.onAccepted(() => {
+          if (disposed || ctx.signal.aborted) return;
+          sheets.accepted(captured);
+          // Teaching moves on to a new question: an emptied sheet kept for the iPad must not
+          // keep showing (and later export) the answered question's reference.
+          if (state.kind === "teaching" && open?.session !== state && companionHolds(state) && state.draft?.reference &&
+            !state.draft.strokes.length && !state.draft.redo?.length) sheets.create(state, blankSheet());
+        });
         return result;
       },
     }));

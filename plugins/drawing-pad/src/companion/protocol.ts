@@ -56,7 +56,7 @@ export type Intent = Extract<ClientMessage, { t: "stroke" | "undo" | "redo" | "c
 export type LiveMessage = Extract<ClientMessage, { t: "live" | "live-end" }>;
 
 export type ServerMessage =
-  | { t: "welcome"; deviceId: string; name: string; device?: string }
+  | { t: "welcome"; deviceId: string; name: string; build?: string; device?: string }
   | { t: "denied"; reason: string }
   | { t: "state"; doc: DocSnapshot | null; host: boolean }
   | OpMessage

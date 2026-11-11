@@ -611,3 +611,28 @@ describe("CompanionServer hardening (review regressions)", () => {
     } finally { await f.close(); }
   });
 });
+
+describe("CompanionServer page build", () => {
+  it("serves a build id with cache-busted assets and sends it in welcome", async () => {
+    const { assetBuild } = await import("../src/companion/server.ts");
+    const f = await fixture();
+    try {
+      const build = assetBuild(ASSETS);
+      const page = await request(f.port, "/");
+      assert.ok(page.body.length > 0);
+      const { peer } = await f.pair();
+      assert.ok(peer);
+      const { code } = f.pairing.createCode();
+      const other = await f.connect();
+      other.send({ t: "hello", v: 1, pair: code });
+      const welcome = await other.next();
+      assert.equal(welcome.t === "welcome" && welcome.build, build);
+    } finally { await f.close(); }
+  });
+  it("pageHtml injects the build meta and versioned asset URLs", async () => {
+    const { pageHtml } = await import("../src/companion/server.ts");
+    const html = pageHtml({ html: '<head><link href="/app.css"><script src="/app.js"></script></head>', js: "", css: "" }, "abc");
+    assert.match(html, /\/app\.js\?v=abc/); assert.match(html, /\/app\.css\?v=abc/);
+    assert.match(html, /<meta name="lh-build" content="abc">/);
+  });
+});

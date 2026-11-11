@@ -13,6 +13,19 @@ import { applyOp, LIMITS, parseClientMessage, PROTOCOL_VERSION, type DocSnapshot
   type OpMessage, type ServerMessage } from "./protocol.ts";
 
 export interface CompanionAssets { html: string; js: string; css: string }
+/** Content hash of the page code. Served pages carry it, and devices running an older
+ * page (kept open across a LearnHarness update) are told to reload. */
+export function assetBuild(assets: CompanionAssets): string {
+  let hash = 2166136261;
+  for (const text of [assets.html, assets.js, assets.css]) for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
+  return (hash >>> 0).toString(36);
+}
+/** Inject the build id and cache-busting asset URLs into the page. */
+export function pageHtml(assets: CompanionAssets, build: string): string {
+  return assets.html.replace("/app.js", `/app.js?v=${build}`).replace("/app.css", `/app.css?v=${build}`)
+    .replace("</head>", `  <meta name="lh-build" content="${build}">
+</head>`);
+}
 export interface CompanionEvents {
   intent(intent: Intent, device: DeviceSummary): void;
   live(message: LiveMessage, device: DeviceSummary): void;
@@ -70,10 +83,12 @@ export class CompanionServer {
   private doc: DocSnapshot | null = null;
   private known = false;
   private hostAttached = false;
+  private readonly build: string;
 
   constructor(private readonly assets: CompanionAssets, private readonly pairing: Pairing, private readonly events: CompanionEvents,
     private readonly now: () => number = Date.now) {
     this.limiter = new AttemptLimiter(10, 60_000, now);
+    this.build = assetBuild(assets);
   }
   get listening(): boolean { return !!this.server?.listening; }
   get address(): number { return this.port; }
@@ -138,7 +153,7 @@ export class CompanionServer {
     if (!allowedHost(request.headers.host, this.port)) return send(421, "Misdirected request");
     if (request.method !== "GET" && request.method !== "HEAD") return send(405, "Method not allowed", undefined, { allow: "GET, HEAD" });
     const path = (request.url ?? "/").split("?")[0];
-    if (path === "/") return send(200, this.assets.html, "text/html; charset=utf-8", { "content-security-policy": CSP });
+    if (path === "/") return send(200, pageHtml(this.assets, this.build), "text/html; charset=utf-8", { "content-security-policy": CSP });
     if (path === "/app.js") return send(200, this.assets.js, "text/javascript; charset=utf-8");
     if (path === "/app.css") return send(200, this.assets.css, "text/css; charset=utf-8");
     send(404, "Not found");
@@ -215,7 +230,7 @@ export class CompanionServer {
       for (const other of this.clients) if (other !== client && other.device?.id === device.id)
         this.close(other, CLOSE_REPLACED, "This drawing page was opened again in another tab or window.");
       client.device = device;
-      this.send(client, { t: "welcome", deviceId: device.id, name: device.name, ...(issued ? { device: issued } : {}) });
+      this.send(client, { t: "welcome", deviceId: device.id, name: device.name, build: this.build, ...(issued ? { device: issued } : {}) });
       this.sendState(client);
       this.events.changed();
       return;

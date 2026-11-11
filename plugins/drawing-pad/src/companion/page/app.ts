@@ -169,6 +169,15 @@ export function start(): void {
       if (result === "resync") connection.send({ t: "sync" });
       requestRender();
     },
+    welcome(build) {
+      // This page is older than the one LearnHarness now serves (updated plugin): reload
+      // once to pick up the new drawing code. The guard prevents a reload loop.
+      const mine = document.querySelector<HTMLMetaElement>('meta[name="lh-build"]')?.content;
+      if (!build || !mine || build === mine) return;
+      try { if (sessionStorage.getItem("lh-companion-reloaded") === build) return; sessionStorage.setItem("lh-companion-reloaded", build); }
+      catch { return; }
+      location.reload();
+    },
     reject(id, reason) { if (model.reject(id)) { notify(reason); requestRender(); } },
     status(state, detail) {
       connectionState = state; connectionDetail = detail ?? "";

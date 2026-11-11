@@ -93,3 +93,25 @@ it("a corrupt companion file never disables the Drawing Pad backend", () => {
     void dispose();
   } finally { console.error = error; fs.rmSync(root, { recursive: true, force: true }); }
 });
+it("with an iPad connected, a targeted session without a sheet gets a blank one (Draw closed)", async () => {
+  const { CompanionHost } = await import("../src/companion/host.ts");
+  const sheets = new Sheets(() => {}, () => {}), state = sheets.session("s1", "teaching");
+  let connected = 0;
+  const ctx = { manifest: { id: "drawing-pad" },
+    async call(name: string) {
+      if (name === "companion-status") return { running: true, port: 1, addresses: [], devices: connected ? [{ id: "dev12345", name: "iPad", lastSeen: 0, connected: true }] : [] };
+      return { ok: true };
+    },
+    onNotification() { return () => {}; }, onResync() { return () => {}; } } as unknown as import("learnharness-plugin-api").PluginFrontendContext;
+  const created: string[] = [];
+  const host = new CompanionHost(ctx, sheets, target => { created.push(target.id); sheets.create(target, { background: "", backgroundColor: "#fff", width: 0, height: 0, pixelRatio: 1 }); });
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  try {
+    await flush();
+    host.focus(state); await flush();
+    assert.deepEqual(created, [], "no blank sheets without a connected device");
+    connected = 1; await (host as unknown as { refreshStatus(): Promise<void> }).refreshStatus(); await flush(); await flush();
+    assert.deepEqual(created, ["s1"]);
+    assert.ok(state.draft && !state.draft.reference, "a blank sheet the iPad can write on");
+  } finally { host.dispose(); }
+});

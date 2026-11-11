@@ -56,7 +56,10 @@ export class CompanionHost {
   private disposed = false;
   private readonly cleanups: (() => void)[] = [];
 
-  constructor(private readonly ctx: PluginFrontendContext, private readonly sheets: Sheets) {
+  /** `ensureSheet` gives the targeted session a blank sheet when it has none while a
+   * device is connected, so the iPad can keep writing with the Draw panel closed. */
+  constructor(private readonly ctx: PluginFrontendContext, private readonly sheets: Sheets,
+    private readonly ensureSheet?: (state: SessionSheet) => void) {
     this.cleanups.push(sheets.onChange(() => this.schedule()));
     this.cleanups.push(ctx.onNotification(event => this.notification(event)));
     this.cleanups.push(ctx.onResync(() => { void this.refreshStatus(); this.schedule(true); }));
@@ -110,9 +113,10 @@ export class CompanionHost {
   }
   private setStatus(status: CompanionStatus): void {
     if (this.disposed || !status || typeof status !== "object") return;
-    const wasRunning = this.running;
+    const wasRunning = this.running, wasConnected = this.connectedDevices;
     this.status = status;
     if (status.running && !wasRunning) this.schedule(true);
+    else if (this.connectedDevices > 0 && !wasConnected) this.schedule();
     if (!status.running) { this.published = undefined; this.clearLive(); }
     for (const listener of this.statusListeners) listener();
   }
@@ -139,6 +143,7 @@ export class CompanionHost {
       while (this.dirty && !this.disposed) {
         this.dirty = false;
         if (!this.running || !this.target || (this.passive && !this.claim)) { if (!this.running) this.published = undefined; this.forceState = false; continue; }
+        if (!this.target.draft && this.connectedDevices > 0 && !this.passive) this.ensureSheet?.(this.target);
         const message = this.nextMessage();
         if (!message) continue;
         try {

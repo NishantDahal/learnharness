@@ -87,8 +87,38 @@ export function paintSegment(context: CanvasRenderingContext2D, a: Point, b: Poi
  * stored unchanged; only rendering is smoothed, so every device (and the exported
  * image) draws the same shape. Widths match `strokeWidth` (diameter = 2 × radius). */
 export const INK = Object.freeze({ base: 3, thinning: THINNING, smoothing: 0.62, streamline: 0.42 });
+/** Safari often delivers ~60 pencil samples per second, so a fast "a" or "o" arrives as
+ * a few straight chords. Fill long gaps with a centripetal Catmull-Rom spline through
+ * the samples (pressure interpolated linearly) so curves stay round on every device. */
+export function densify(points: readonly Point[], spacing = 2): Point[] {
+  if (points.length < 3) return [...points];
+  const out: Point[] = [points[0]!];
+  for (let i = 0; i < points.length - 1; i++) {
+    const p1 = points[i]!, p2 = points[i + 1]!, p0 = points[i - 1] ?? p1, p3 = points[i + 2] ?? p2;
+    const length = Math.hypot(p2.x - p1.x, p2.y - p1.y), steps = Math.min(24, Math.floor(length / spacing));
+    if (steps > 1) {
+      // Centripetal parameterization avoids loops and overshoot on sharp turns.
+      const knot = (a: Point, b: Point) => Math.max(1e-4, Math.hypot(b.x - a.x, b.y - a.y) ** 0.5);
+      const t1 = knot(p0, p1), t2 = t1 + knot(p1, p2), t3 = t2 + knot(p2, p3);
+      for (let s = 1; s < steps; s++) {
+        const t = t1 + (t2 - t1) * s / steps;
+        const lerp = (a: Point, b: Point, ta: number, tb: number) => {
+          const w = tb === ta ? 0 : (t - ta) / (tb - ta);
+          return { x: a.x + (b.x - a.x) * w, y: a.y + (b.y - a.y) * w };
+        };
+        const a1 = lerp(p0, p1, 0, t1), a2 = lerp(p1, p2, t1, t2), a3 = lerp(p2, p3, t2, t3);
+        const b1 = { x: a1.x + (a2.x - a1.x) * (t - 0) / t2, y: a1.y + (a2.y - a1.y) * (t - 0) / t2 };
+        const b2 = { x: a2.x + (a3.x - a2.x) * (t - t1) / (t3 - t1), y: a2.y + (a3.y - a2.y) * (t - t1) / (t3 - t1) };
+        const w = (t - t1) / (t2 - t1);
+        out.push({ x: b1.x + (b2.x - b1.x) * w, y: b1.y + (b2.y - b1.y) * w, pressure: p1.pressure + (p2.pressure - p1.pressure) * s / steps });
+      }
+    }
+    out.push(p2);
+  }
+  return out;
+}
 export function strokeOutline(stroke: Stroke, complete = true): number[][] {
-  return getStroke(stroke.points.map(point => [point.x, point.y, point.pressure]), {
+  return getStroke(densify(stroke.points).map(point => [point.x, point.y, point.pressure]), {
     size: INK.base * strokeSize(stroke), thinning: INK.thinning, smoothing: INK.smoothing, streamline: INK.streamline,
     simulatePressure: false, last: complete, start: { cap: true }, end: { cap: true },
   });

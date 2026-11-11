@@ -18,6 +18,8 @@ export interface ConnectionHandlers {
   op(message: OpMessage): void;
   reject(id: string, reason: string): void;
   status(state: ConnectionState, detail?: string): void;
+  /** The server's page build; the app reloads itself if it is running an older page. */
+  welcome?(build: string | undefined): void;
 }
 export interface ConnectionOptions {
   url: string;
@@ -150,6 +152,7 @@ export class CompanionConnection {
         this.pairCode = undefined; this.authenticated = true; this.attempts = 0;
         this.setState("online");
         this.heartbeat();
+        this.handlers.welcome?.(typeof value.build === "string" ? value.build : undefined);
         return;
       case "denied":
         this.pairCode = undefined;

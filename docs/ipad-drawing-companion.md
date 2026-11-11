@@ -123,12 +123,17 @@ or **Not paired**. The tablet icon in the Draw toolbar shows the computer-side s
   opened Draw (in this app window). Opening Draw in another session moves the iPad to
   that session's sheet. Strokes made for an older sheet are never redirected to the new
   one; the iPad reports them as not added.
-- **Closing Draw** keeps the drawing, as before; the iPad can keep drawing on it. A sheet
-  that was never drawn on is discarded when Draw closes (existing behavior); the iPad
-  then shows "Open Draw…".
+- **Closing Draw** to read the question: while an iPad is connected, the iPad keeps
+  writing into that session's sheet, even if nothing was drawn yet. Reopen Draw any time
+  to see the ink on the computer. If the session has no sheet (for example after a new
+  practice problem or an answered teaching question), the iPad gets a blank sheet without
+  the question picture; reopening Draw on an untouched sheet captures the new question.
+  Without a connected iPad, Draw behaves exactly as before.
 - **Submitting:** in teaching sessions an accepted submission clears the sheet on both
   devices; in practice the drawing stays (existing rules). A new practice problem resets
   the sheet; open Draw again for the new problem.
+- **Updates:** when LearnHarness serves a newer drawing page (after a plugin update), an
+  open iPad page reloads itself once on reconnect.
 - **Reconnection:** after Wi-Fi drops, sleep, or switching apps, the iPad reconnects by
   itself, receives the complete current drawing, and resends any strokes that did not
   arrive. Strokes are identified by id, so none are duplicated.

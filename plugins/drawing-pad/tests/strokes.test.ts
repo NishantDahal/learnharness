@@ -64,3 +64,14 @@ it("does not mutate stroke arrays while resolving erasers", () => {
   const before = JSON.stringify(history); visibleStrokes(history);
   assert.equal(JSON.stringify(history), before);
 });
+it("rounds sparse samples into smooth curves without changing the stored points", async () => {
+  const { densify } = await import("../src/strokes.ts");
+  // A circle sampled at only 8 points, like a fast "o" in Safari at 60 Hz.
+  const ring = Array.from({ length: 9 }, (_, i) => point(20 * Math.cos(i * Math.PI / 4), 20 * Math.sin(i * Math.PI / 4)));
+  const smooth = densify(ring);
+  assert.ok(smooth.length > ring.length * 4, "gaps are filled");
+  const worst = Math.max(...smooth.map(p => Math.abs(Math.hypot(p.x, p.y) - 20)));
+  assert.ok(worst < 1.6, `filled points follow the curve (max radial error ${worst.toFixed(2)})`);
+  for (const original of ring) assert.ok(smooth.some(p => p.x === original.x && p.y === original.y), "original samples are kept");
+  assert.equal(densify(ring.slice(0, 2)).length, 2, "short strokes untouched");
+});
