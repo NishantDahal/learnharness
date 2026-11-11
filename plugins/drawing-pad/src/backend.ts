@@ -4,9 +4,11 @@ import { randomUUID } from "node:crypto";
 import type { PluginBackendContext } from "learnharness-plugin-api";
 import { DEFAULT_SETTINGS, parseColorChange, parseImageScaleChange, parseSettings, type Settings } from "./settings.ts";
 import { acceptedPoseKeys } from "./poses.ts";
+import { activateCompanion } from "./companion/backend.ts";
 
-/** The backend stores preferences only. Editable drawings never leave window memory. */
-export function activate(ctx: PluginBackendContext): () => void {
+/** The backend stores preferences and companion pairing only. Editable drawings stay
+ * owned by window memory; the opt-in iPad companion relays them (companion/). */
+export function activate(ctx: PluginBackendContext): () => void | Promise<void> {
   const file = path.join(ctx.dataDirectory, "settings.json");
   let settings: Settings;
   try { settings = parseSettings(JSON.parse(fs.readFileSync(file, "utf8"))); }
@@ -45,9 +47,15 @@ export function activate(ctx: PluginBackendContext): () => void {
   };
   const set = ctx.handle("set-ink-color", input => { assertActive(); return persist(parseColorChange(input)); });
   const scale = ctx.handle("set-image-scale", input => { assertActive(); return persist({ imageScale: parseImageScaleChange(input) }); });
+  let companion: (() => Promise<void>) | undefined;
+  // The companion is optional: a problem with it (e.g. an unreadable companion file)
+  // must never disable drawing, settings or submissions.
+  try { companion = activateCompanion(ctx); }
+  catch (error) { console.error("Drawing Pad iPad companion is unavailable:", error); }
   return () => {
     if (disposed) return;
     disposed = true;
     get(); set(); scale(); poses();
+    return companion?.();
   };
 }

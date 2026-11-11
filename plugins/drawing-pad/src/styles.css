@@ -26,3 +26,20 @@
 .drawing-pad-reference-mark[data-multiple="true"] { border-radius: 2px; }
 .drawing-pad-reference-description { font-size: 11px; color: var(--muted-foreground); }
 .drawing-pad-reference-extra { border-style: dashed; color: var(--muted-foreground); }
+/* iPad companion dialog */
+.drawing-pad-companion { display: grid; gap: 12px; max-width: 34rem; }
+.drawing-pad-companion-title { margin: 0; font-size: 1.1rem; font-weight: 600; }
+.drawing-pad-companion-subtitle { margin: 8px 0 0; font-size: .95rem; font-weight: 600; }
+.drawing-pad-companion-text, .drawing-pad-companion-status { margin: 0; }
+.drawing-pad-companion-help { margin: 0; font-size: .85rem; color: var(--muted-foreground); }
+.drawing-pad-companion-status[data-state="error"] { color: var(--lh-error, #dc2626); }
+.drawing-pad-companion-status[data-state="connected"] { color: var(--lh-success, #16a34a); }
+.drawing-pad-companion-pair { display: grid; gap: 10px; justify-items: start; }
+.drawing-pad-companion-qr-area { display: grid; gap: 8px; justify-items: start; }
+.drawing-pad-companion-qr { width: 220px; height: 220px; border-radius: 8px; }
+.drawing-pad-companion-url { user-select: all; word-break: break-all; font-size: .85rem; }
+.drawing-pad-companion-devices { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.drawing-pad-companion-device { display: flex; align-items: center; gap: 10px; }
+.drawing-pad-companion-device-name { font-weight: 500; }
+.drawing-pad-companion-device-state { flex: 1; font-size: .85rem; color: var(--muted-foreground); }
+.drawing-pad-companion-device-state[data-connected="true"] { color: var(--lh-success, #16a34a); }

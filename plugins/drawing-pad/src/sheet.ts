@@ -1,7 +1,7 @@
 import type { PluginButtonProps, PluginFrontendContext, PluginSessionViewInput, PluginWidgetHandle } from "learnharness-plugin-api";
 import { captureBackground } from "./capture.ts";
 import { frame } from "./abort.ts";
-import { PEN, ERASER, HAND, UNDO } from "./icons.ts";
+import { PEN, ERASER, HAND, UNDO, REDO, TABLET } from "./icons.ts";
 import { referenceFor, mountReference } from "./reference.ts";
 import { referenceBounds, viewOrigin } from "./geometry.ts";
 import { paintInk, paintSegment, type Point, type Stroke } from "./strokes.ts";
@@ -14,11 +14,15 @@ export interface MountedSheet {
   canUseEditingShortcuts(): boolean;
   canUndo(): boolean;
   undo(): void;
+  canRedo(): boolean;
+  redo(): void;
   togglePenEraser(): void;
   selectHand(): void;
 }
+/** Optional companion entry point shown in the toolbar (iPad pairing/status). */
+export interface SheetCompanion { open(): void; label(): string; connected(): boolean; onChange(listener: () => void): () => void }
 export function mountSheet(container: HTMLElement, ctx: PluginFrontendContext, sheets: Sheets, state: SessionSheet,
-  input: PluginSessionViewInput, signal: AbortSignal): MountedSheet {
+  input: PluginSessionViewInput, signal: AbortSignal, companion?: SheetCompanion): MountedSheet {
   const root = document.createElement("div"); root.className = "drawing-pad-root";
   const toolbar = document.createElement("div"); toolbar.className = "drawing-pad-tools";
   toolbar.setAttribute("role", "group");
@@ -57,11 +61,15 @@ export function mountSheet(container: HTMLElement, ctx: PluginFrontendContext, s
       !focused.closest('input,textarea,select,[role="textbox"],[role="combobox"]');
   };
   const canUndo = () => editable() && !!state.draft?.strokes.length;
-  const undoHistory = () => { if (canUndo()) commitHistory(state.draft!.strokes.slice(0, -1)); };
+  const undoHistory = () => { if (canUndo()) sheets.undo(state); };
+  const canRedo = () => editable() && sheets.canRedo(state);
+  const redoHistory = () => { if (canRedo()) sheets.redo(state); };
   const togglePenEraser = () => { if (editable()) sheets.setTool(state, state.tool === "pen" ? "eraser" : "pen"); };
   const selectHand = () => { if (editable()) sheets.setTool(state, "hand"); };
   const undo = toolButton("Undo", undoHistory, UNDO);
-  const clear = toolButton("Clear", () => { if (pointerId === undefined && state.draft) commitHistory([]); });
+  const redo = toolButton("Redo", redoHistory, REDO);
+  const clear = toolButton("Clear", () => { if (pointerId === undefined && state.draft) sheets.clear(state); });
+  const tablet = companion ? toolButton(companion.label(), () => companion.open(), TABLET) : undefined;
   const render = () => {
     if (disposed) return;
     const draft = state.draft;
@@ -70,7 +78,9 @@ export function mountSheet(container: HTMLElement, ctx: PluginFrontendContext, s
     eraser.update({ variant: state.tool === "eraser" ? "secondary" : "outline", disabled: preparing || !!failure });
     hand.update({ variant: state.tool === "hand" ? "secondary" : "outline", disabled: preparing || !!failure });
     undo.update({ disabled: preparing || !!failure || pointerId !== undefined || !draft?.strokes.length });
-    clear.update({ disabled: preparing || !!failure || pointerId !== undefined || !draft?.strokes.length });
+    redo.update({ disabled: preparing || !!failure || pointerId !== undefined || !draft?.redo?.length });
+    if (tablet && companion) tablet.update({ label: companion.label(), title: companion.label(), variant: companion.connected() ? "secondary" : "outline" });
+    clear.update({ disabled: preparing || !!failure || pointerId !== undefined || (!draft?.strokes.length && !draft?.redo?.length) });
     canvas.style.cursor = panDrag ? "grabbing" : state.tool === "hand" ? "grab" : "default";
     status.hidden = !preparing && !failure;
     status.setAttribute("role", failure ? "alert" : "status");
@@ -91,7 +101,9 @@ export function mountSheet(container: HTMLElement, ctx: PluginFrontendContext, s
       const pixelsWide = Math.max(1, Math.round(width * pixelRatio)), pixelsHigh = Math.max(1, Math.round(height * pixelRatio));
       if (canvas.width !== pixelsWide) canvas.width = pixelsWide;
       if (canvas.height !== pixelsHigh) canvas.height = pixelsHigh;
-      const history = active && activeDraftId === draft.id ? [...draft.strokes, active] : draft.strokes;
+      // Remote companion strokes still being drawn are previewed above committed ink.
+      const remote = sheets.liveStrokes(state);
+      const history = [...draft.strokes, ...remote, ...(active && activeDraftId === draft.id ? [active] : [])];
       paintInk(canvas, width, height, history, draft.color, origin);
     }
   };
@@ -141,7 +153,7 @@ export function mountSheet(container: HTMLElement, ctx: PluginFrontendContext, s
       if (active && active.tool !== nextTool) flush();
       if (!active) { start(sample); continue; }
       const next = point(sample);
-      if (active.tool === "pen") paintSegment(canvas.getContext("2d")!, active.points.at(-1)!, next, state.draft.color);
+      if (active.tool === "pen") paintSegment(canvas.getContext("2d")!, active.points.at(-1)!, next, state.draft.color, active.size ?? 1);
       active.points.push(next);
     }
     const draft = state.draft;
@@ -162,11 +174,18 @@ export function mountSheet(container: HTMLElement, ctx: PluginFrontendContext, s
   canvas.addEventListener("contextmenu", event => event.preventDefault(), { signal });
   viewport.addEventListener("wheel", event => event.preventDefault(), { signal, passive: false });
   const unsubscribe = sheets.onChange(render);
+  // Live companion previews arrive at pointer rate; repaint at most once per frame.
+  let liveFrame: number | undefined;
+  const unsubscribeLive = sheets.onLive(() => {
+    if (liveFrame === undefined && !disposed) liveFrame = requestAnimationFrame(() => { liveFrame = undefined; render(); });
+  });
+  const unsubscribeCompanion = companion?.onChange(render);
   const resize = new ResizeObserver(render); resize.observe(viewport);
   const dispose = () => {
     if (disposed) return;
     disposed = true; flush(); pointerId = undefined;
-    unsubscribe(); resize.disconnect(); referenceMount?.dispose();
+    unsubscribe(); unsubscribeLive(); unsubscribeCompanion?.(); resize.disconnect(); referenceMount?.dispose();
+    if (liveFrame !== undefined) cancelAnimationFrame(liveFrame);
     for (const button of buttons) button.dispose();
     signal.removeEventListener("abort", dispose); root.remove();
   };
@@ -202,5 +221,5 @@ export function mountSheet(container: HTMLElement, ctx: PluginFrontendContext, s
       }
     } finally { referenceMount?.dispose(); reference?.remove(); }
   })();
-  return { flush, dispose, canUseEditingShortcuts, canUndo, undo: undoHistory, togglePenEraser, selectHand };
+  return { flush, dispose, canUseEditingShortcuts, canUndo, undo: undoHistory, canRedo, redo: redoHistory, togglePenEraser, selectHand };
 }

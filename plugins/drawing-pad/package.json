@@ -9,11 +9,17 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "test:browser": "node tests/browser.mjs"
+    "test:browser": "node tests/browser.mjs",
+    "build:community": "node scripts/build-community.mjs"
   },
-  "dependencies": { "html-to-image": "1.11.13" },
+  "dependencies": {
+    "html-to-image": "1.11.13",
+    "qrcode-generator": "2.0.4",
+    "ws": "8.22.1"
+  },
   "devDependencies": {
     "@types/node": "24.13.3",
+    "@types/ws": "8.18.1",
     "esbuild": "0.28.2",
     "learnharness-plugin-api": "file:.sdk",
     "puppeteer-core": "25.16.0",

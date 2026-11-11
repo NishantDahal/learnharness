@@ -1,0 +1,70 @@
+:root {
+  --bg: #141414; --fg: #f2f2f2; --muted: #a3a3a3; --bar: rgba(30, 30, 30, .92); --line: rgba(255, 255, 255, .14);
+  --pressed: rgba(255, 255, 255, .16); --accent: #4ade80; --warn: #facc15; --bad: #f87171;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #ffffff; --fg: #111111; --muted: #555555; --bar: rgba(245, 245, 245, .94); --line: rgba(0, 0, 0, .14);
+  --pressed: rgba(0, 0, 0, .1); --accent: #16a34a; --warn: #ca8a04; --bad: #dc2626;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+dialog:not([open]) { display: none; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
+  font: 15px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  overscroll-behavior: none; touch-action: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+body { position: fixed; inset: 0; display: flex; flex-direction: column; }
+.bar {
+  flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; z-index: 2;
+  padding: calc(6px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) 6px calc(10px + env(safe-area-inset-left));
+  background: var(--bar); border-bottom: 1px solid var(--line); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+}
+.group { display: flex; align-items: center; gap: 4px; }
+.group.end { margin-left: auto; gap: 8px; }
+.tool, .size {
+  appearance: none; border: 1px solid transparent; background: transparent; color: var(--fg);
+  min-width: 44px; height: 44px; border-radius: 10px; display: inline-grid; place-items: center; padding: 0 10px; font: inherit;
+  touch-action: manipulation; cursor: pointer;
+}
+.tool svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tool svg .fill { fill: currentColor; stroke: none; }
+.tool[aria-pressed="true"], .size[aria-pressed="true"] { background: var(--pressed); border-color: var(--line); }
+.tool:disabled { opacity: .35; }
+.tool.text { font-weight: 600; }
+.tool.danger { color: var(--bad); }
+.size span { display: block; border-radius: 50%; background: currentColor; }
+.size .dot-0 { width: 4px; height: 4px; }
+.size .dot-1 { width: 7px; height: 7px; }
+.size .dot-2 { width: 11px; height: 11px; }
+.size .dot-3 { width: 16px; height: 16px; }
+.label { color: var(--muted); max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; min-width: 6.5em; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+.dot[data-state="live"] { background: var(--accent); }
+.dot[data-state="waiting"], .dot[data-state="connecting"] { background: var(--warn); }
+.dot[data-state="offline"], .dot[data-state="error"] { background: var(--bad); }
+.surface { position: relative; flex: 1; overflow: hidden; background: var(--bg); touch-action: none; cursor: crosshair; }
+.layer { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.reference { position: absolute; left: 0; top: 0; transform-origin: 0 0; pointer-events: none; max-width: none; }
+.reference.inverted { filter: invert(1) hue-rotate(180deg); }
+.message {
+  position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 32px;
+  text-align: center; color: var(--muted); font-size: 18px; pointer-events: none;
+}
+.message[hidden], .toast[hidden] { display: none; }
+.message p { max-width: 32em; margin: 0; }
+.message button { pointer-events: auto; border-color: var(--line); }
+.toast {
+  position: absolute; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); transform: translateX(-50%);
+  background: var(--bar); border: 1px solid var(--line); border-radius: 12px; padding: 10px 16px; max-width: 90%;
+}
+.confirm { border: 1px solid var(--line); border-radius: 14px; background: var(--bg); color: var(--fg); padding: 20px; max-width: 26em; }
+.confirm::backdrop { background: rgba(0, 0, 0, .45); }
+.confirm p { margin: 0 0 16px; }
+.confirm .actions { display: flex; justify-content: flex-end; gap: 8px; }
+@media (max-width: 700px) { .label { display: none; } .bar { gap: 4px 8px; } }

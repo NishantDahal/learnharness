@@ -8,6 +8,9 @@ import { Sheets, type SessionSheet } from "./state.ts";
 import { appendDrawing } from "./submission.ts";
 import { PEN } from "./icons.ts";
 import { appPalette, recolorReference } from "./theme.ts";
+import { CompanionHost } from "./companion/host.ts";
+import { openCompanionDialog } from "./companion/panel.ts";
+import type { SheetCompanion } from "./sheet.ts";
 type SessionAction = Extract<PluginActionContext, { surface: "session" }>;
 interface OpenPad {
   session: SessionSheet;
@@ -32,6 +35,16 @@ export async function activate(ctx: PluginFrontendContext): Promise<() => void> 
         void refreshPalette().catch(report);
     }
   }, state => { if (open?.session === state) close(open); }, activeInk);
+  // Optional iPad companion bridge. It only relays this window's sheets; failures
+  // to reach its backend leave the existing Drawing Pad fully functional.
+  const companion = new CompanionHost(ctx, sheets);
+  let companionDialog: { dispose(): void } | undefined;
+  const companionEntry: SheetCompanion = {
+    open() { companionDialog?.dispose(); companionDialog = openCompanionDialog(ctx, companion); },
+    label: () => companion.connectedDevices ? "iPad connected" : companion.running ? "iPad companion (on, not connected)" : "iPad companion",
+    connected: () => companion.connectedDevices > 0,
+    onChange: listener => companion.onStatus(listener),
+  };
   function close(pad: OpenPad): void {
     if (pad.closed) return;
     pad.closed = true;
@@ -53,12 +66,13 @@ export async function activate(ctx: PluginFrontendContext): Promise<() => void> 
     sheets.dropUntouched(state);
     const pad: OpenPad = { session: state, controller: new AbortController(), closed: false };
     open = pad;
+    companion.focus(state);
     try {
       pad.handle = ctx.ui.openSurface(context.surfaceTarget, {
         title: "Drawing pad", background: "opaque",
         content(container, signal) {
           if (pad.closed || signal.aborted) return;
-          const mounted = mountSheet(container, ctx, sheets, state, context.view.input, signal);
+          const mounted = mountSheet(container, ctx, sheets, state, context.view.input, signal, companionEntry);
           pad.mounted = mounted;
           return () => {
             mounted.dispose();
@@ -99,6 +113,12 @@ export async function activate(ctx: PluginFrontendContext): Promise<() => void> 
     shortcut: { scope: { sessions: ["teaching", "practice"] }, defaultBinding: "mod+z" },
     disabled: context => !editingPad(context)?.canUndo(),
     run(context) { editingPad(context)?.undo(); },
+  };
+  const redoAction: PluginAction = {
+    id: "redo", name: "Redo drawing",
+    shortcut: { scope: { sessions: ["teaching", "practice"] }, defaultBinding: "mod+shift+z" },
+    disabled: context => !editingPad(context)?.canRedo(),
+    run(context) { editingPad(context)?.redo(); },
   };
   const toggleToolsAction: PluginAction = {
     id: "toggle-pen-eraser", name: "Toggle pen/eraser",
@@ -178,6 +198,7 @@ export async function activate(ctx: PluginFrontendContext): Promise<() => void> 
     disposed = true;
     paletteController.abort();
     if (open) close(open);
+    companionDialog?.dispose(); companion.dispose();
     for (const cleanup of cleanups.splice(0)) cleanup();
     settings?.dispose(); sheets.dispose(); pageSessions.clear();
   };
@@ -204,6 +225,7 @@ export async function activate(ctx: PluginFrontendContext): Promise<() => void> 
     if (disposed || ctx.signal.aborted) return dispose;
     cleanups.push(ctx.registerAction(action));
     cleanups.push(ctx.registerAction(undoAction));
+    cleanups.push(ctx.registerAction(redoAction));
     cleanups.push(ctx.registerAction(toggleToolsAction));
     cleanups.push(ctx.registerAction(handAction));
     cleanups.push(ctx.placeAction({ id: "session-draw", actionId: "draw", location: "top-bar", sessions: ["teaching", "practice"] }));
