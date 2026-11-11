@@ -42,7 +42,7 @@ fence names. Do not install this build into a Community `plugins/drawing-pad/` f
   pans with any selected tool; release or cancellation ends that gesture without
   switching tools, drawing/erasing, or adding an Undo entry. Pointer capture keeps
   panning/release working outside the canvas. Stylus-eraser behavior is unchanged.
-  No zoom or Redo.
+  No zoom. Redo restores undone strokes until the next edit or Clear.
 - Pen, whole-stroke Eraser, Undo, and Clear reuse the
   handwriting contribution's pressure-sensitive pen/mouse mechanics. Touch is ignored.
   Pen, Eraser, Hand, and Undo are icon-only controls with accessible names and tooltips;
@@ -86,9 +86,22 @@ fence names. Do not install this build into a Community `plugins/drawing-pad/` f
 - Each session's sheet lives only in this app window's memory across navigation.
   Reload/restart/disable loses unsent work. No editable draft persistence.
 
+## iPad companion (opt-in)
+
+The Draw toolbar's tablet button opens the **iPad drawing companion** dialog: an opt-in,
+LAN-only server inside this plugin's backend that lets Safari on an iPad (Apple Pencil)
+draw live into the same session sheet. The window's sheets remain the single source of
+truth and the submission interceptor above is unchanged. **Redo** (toolbar and
+Cmd/Ctrl+Shift+Z) and optional per-stroke brush sizes were added for it; size-1 strokes
+keep their previous width and image signature. Setup, security model and limitations:
+[docs/ipad-drawing-companion.md](../../docs/ipad-drawing-companion.md). Source:
+[`src/companion/`](src/companion/). The backend now also stores `companion.json`
+(`{enabled, port}`) and `companion-devices.json` (device names and SHA-256 hashes of
+device keys) beside `settings.json`.
+
 ## Keyboard shortcuts
 
-Settings → Keyboard → Drawing Pad lists all four actions, including when the pad
+Settings → Keyboard → Drawing Pad lists all five actions, including when the pad
 is closed. They use the host's shared action/shortcut registry, so Rebind, Clear,
 and Reset work without reloading.
 
@@ -96,6 +109,7 @@ and Reset work without reloading.
 | --- | --- |
 | Draw (toggle open/closed) | Cmd/Ctrl+Shift+D |
 | Undo drawing | Cmd/Ctrl+Z |
+| Redo drawing | Cmd/Ctrl+Shift+Z |
 | Toggle pen/eraser | Cmd/Ctrl+Shift+E |
 | Hand (select, not toggle) | Cmd/Ctrl+Shift+H |
 
@@ -127,7 +141,7 @@ Settings → Drawing Pad:
   resends. Each submission attempt freezes its scale. Very small scales that produce
   no visible ink refuse export and retain the drawing rather than sending a blank PNG.
 
-The backend stores only `{revision, darkInkColor, lightInkColor, imageScale}` in its
+The backend stores Drawing Pad preferences only as `{revision, darkInkColor, lightInkColor, imageScale}` in its
 own `data/settings.json`. `set-ink-color` accepts exactly one `{darkInkColor}` or
 `{lightInkColor}` field per call; there is no legacy `inkColor` alias. Invalid/write-failed
 values are not published as saved settings.
@@ -197,6 +211,14 @@ Unit tests cover settings, public reference projection, stroke/state/geometry lo
 accepted-pose tracking, submission transformation, font parsing, frontend lifetimes
 and build-output guards. Host capabilities are mocked; these are not native host or
 hardware tests.
+
+`tests/companion-*.test.ts` cover the iPad companion: protocol validation and
+coordinate transforms, redo/live-preview/brush-size state, the desktop bridge
+(ordered ops, intents, session isolation, ownership), a real loopback HTTP/WebSocket
+server (headers, Host/Origin checks, pairing, revocation, limits), the iPad page's
+connection/document model (backoff, resend, dedupe), and an end-to-end
+backend ↔ desktop ↔ simulated-iPad sync including reconnection. They use loopback
+sockets and fakes; Safari and Apple Pencil input are not exercised.
 
 The browser fixture is **checkout-only**: it imports private host modules and assets
 not supplied in the authoring kit, and requires the checkout's dependencies plus
